@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install deps
+        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+      - name: Run tests
+        run: pytest -q
+
+  build_and_push:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/cv-inference-k8s:latest
+
+  kind_deploy_and_hpa_test:
+    runs-on: ubuntu-latest
+    needs: build_and_push
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Kind
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: v0.20.0
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: '1.27.3'
+      - name: Build image for Kind
+        run: |
+          docker build -t cv-inference-api:ci .
+      - name: Load image into Kind
+        run: kind load docker-image cv-inference-api:ci --name kind
+      - name: Install metrics-server
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+          # Wait a little for metrics-server to initialize
+          sleep 10
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/
+          # ensure deployment exists
+          kubectl rollout status deployment/cv-inference --timeout=120s || true
+      - name: Set deployment image to CI image
+        run: |
+          kubectl set image deployment/cv-inference cv-inference=cv-inference-api:ci --record
+          kubectl rollout status deployment/cv-inference --timeout=120s
+      - name: Wait for pods
+        run: kubectl get pods -l app=cv-inference -o wide
+      - name: Run Python load test against in-cluster service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          python loadtest/python_load_test.py http://cv-inference:80 data/val/star/star_0000.png 200 50
+      - name: Dump HPA and Deployment status
+        run: |
+          echo 'HPA status:'
+          kubectl get hpa -o wide || true
+          echo 'Deployment status:'
+          kubectl get deployment cv-inference -o wide || true
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install ruff
+      - run: ruff check src/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install torch (CPU-only)
+        run: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+      - run: pip install -r requirements-dev.txt
+      - name: Unit tests (fast, no trained model needed)
+        run: pytest tests/ -v
+      - name: Generate data + train + sanity-check accuracy
+        run: |
+          python src/generate_data.py
+          python -m src.train --epochs 8
+      - name: Validate Kubernetes manifests against the real API schema
+        run: |
+          pip install kubernetes
+          python - <<'EOF'
+          import yaml
+          from kubernetes import client
+          api = client.ApiClient()
+          with open('k8s/deployment.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V1Deployment)
+          with open('k8s/hpa.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V2HorizontalPodAutoscaler)
+          with open('k8s/service.yaml') as f:
+              for doc in yaml.safe_load_all(f):
+                  api._ApiClient__deserialize(doc, client.V1Service)
+          print("All manifests structurally valid")
+          EOF
+
+  # Deliberately no docker-build or kubectl-apply job here: this repo's
+  # dev environment could run a real Docker daemon and confirmed the
+  # build mechanics work, but every container registry (Docker Hub,
+  # GHCR, GCR, ECR) and kubectl's own distribution domains were blocked
+  # by network policy — see README's "what's verified" section. Wire
+  # this up once there's a real registry + cluster to target.
