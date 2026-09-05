@@ -7,7 +7,8 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:v3.13.1
+    # use a valid Prometheus tag (v3.x tags do not exist); pin to a stable v2 release
+    image: prom/prometheus:v2.44.0
     container_name: cv-inference-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
