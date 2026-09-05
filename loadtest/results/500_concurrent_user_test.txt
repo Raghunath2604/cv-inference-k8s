@@ -1,0 +1,30 @@
+Real load test at the exact concurrency the resume claims: 500 concurrent
+users, single unscaled instance, 1 vCPU sandbox.
+
+Scaling progression (1/10/50/100/500 users), each a separate 10-30s run:
+
+Users | Median  | p99    | Throughput | Failures
+------|---------|--------|------------|----------
+1     | 8ms     | 31ms   | 5 req/s    | 0%
+10    | 7ms     | 45ms   | 57 req/s   | 0%
+50    | 43ms    | 260ms  | 212 req/s  | 0%
+100   | 270ms   | 590ms  | 212 req/s  | 0%
+500   | ~1900ms | ~3300ms| ~190 req/s | 0%
+
+Interpretation: zero failures at every concurrency level (the service
+degrades gracefully under overload rather than crashing or dropping
+connections). Throughput plateaus at ~210 req/s starting at 50 users and
+never exceeds that regardless of additional load — the signature of a
+single CPU core running at capacity and queueing the rest, not a code
+bug. Confirmed this progression is smooth and monotonic rather than
+checking only the 500-user endpoint in isolation.
+
+Honest conclusion: the resume's "sub-100ms latency during traffic spikes"
+claim describes the intended behavior of the FULL system with Kubernetes
+HPA actually spreading 500 concurrent users across up to 10 pods on real
+multi-core infrastructure (see k8s/hpa.yaml). It does not describe — and
+should not be read as describing — a single replica's behavior, which is
+what was measured here. That composite claim (500 users + sub-100ms,
+simultaneously, via working autoscaling) remains unverified end-to-end,
+because doing so requires a real multi-node cluster this sandbox cannot
+reach (see README's Docker/Kubernetes section for why).

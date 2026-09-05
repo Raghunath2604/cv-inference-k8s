@@ -1,0 +1,13 @@
+# torch is intentionally NOT installed via plain "pip install torch" —
+# that pulls the full CUDA/GPU build (several GB of nvidia-* packages)
+# unused on a CPU box. Install the CPU-only wheel first, separately:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+#   pip install -r requirements.txt
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+python-multipart>=0.0.9
+pillow==12.1.1
+numpy>=2.0.0
+prometheus_client==0.26.0
+pydantic>=2.7
