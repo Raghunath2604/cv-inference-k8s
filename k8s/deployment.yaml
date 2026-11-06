@@ -47,6 +47,10 @@ spec:
                   key: api-key
             - name: MAX_UPLOAD_BYTES
               value: "10485760"
+            - name: APP_VERSION
+              value: "1.0.0"
+            - name: MODEL_VERSION
+              value: "synthetic-shapes-v1"
           resources:
             requests:
               cpu: "250m"
