@@ -38,6 +38,8 @@ MODEL_PATH = (
 )
 API_KEY = os.environ.get("API_KEY")
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", "10485760"))
+APP_VERSION = os.environ.get("APP_VERSION", "1.0.0")
+MODEL_VERSION = os.environ.get("MODEL_VERSION", "local")
 
 _state = {"model": None, "loaded_at": None}
 
@@ -100,6 +102,11 @@ class HealthResponse(BaseModel):
     classes: list
 
 
+class VersionResponse(BaseModel):
+    application: str
+    model: str
+
+
 @app.middleware("http")
 async def track_requests(request, call_next):
     response = await call_next(request)
@@ -115,6 +122,11 @@ def health():
         status="ok" if _state["model"] is not None else "loading",
         classes=CLASSES,
     )
+
+
+@app.get("/version", response_model=VersionResponse)
+def version():
+    return VersionResponse(application=APP_VERSION, model=MODEL_VERSION)
 
 
 def _authorize(api_key: str | None) -> None:
