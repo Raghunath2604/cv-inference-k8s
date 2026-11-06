@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: "pip"
       - run: pip install ruff
       - run: ruff check src/ tests/
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: "pip"
       - name: Install torch (CPU-only)
         run: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
@@ -35,7 +35,7 @@ jobs:
       - name: Generate data + train + sanity-check accuracy
         run: |
           python src/generate_data.py
-          python -m src.train --epochs 20
+          python -m src.train --epochs 8
       - name: Build clean Docker image
         run: docker build --tag cv-inference-api:ci .
       - name: Validate Compose configuration
@@ -54,9 +54,12 @@ jobs:
           with open('k8s/service.yaml') as f:
               for doc in yaml.safe_load_all(f):
                   api._ApiClient__deserialize(doc, client.V1Service)
-          for path in ('k8s/serviceaccount.yaml', 'k8s/pdb.yaml', 'k8s/networkpolicy.yaml'):
-              with open(path) as f:
-                  assert yaml.safe_load(f)['apiVersion']
+          with open('k8s/serviceaccount.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V1ServiceAccount)
+          with open('k8s/pdb.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V1PodDisruptionBudget)
+          with open('k8s/networkpolicy.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V1NetworkPolicy)
           print("All manifests structurally valid")
           EOF
 

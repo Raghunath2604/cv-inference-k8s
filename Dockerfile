@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.12-slim AS builder
+FROM python:3.11-slim AS builder
 WORKDIR /build
 
 COPY requirements.txt .
@@ -16,12 +16,12 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # Build the model artifact inside the image so a clean checkout is enough
 # to produce a runnable image; generated data remains confined to this
 # disposable builder stage.
-ENV PYTHONPATH=/install/lib/python3.12/site-packages
+ENV PYTHONPATH=/install/lib/python3.11/site-packages
 COPY src/ ./src/
 ARG TRAIN_EPOCHS=20
 RUN python -u src/generate_data.py && python -u -m src.train --epochs ${TRAIN_EPOCHS}
 
-FROM python:3.12-slim AS runtime
+FROM python:3.11-slim AS runtime
 RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 
