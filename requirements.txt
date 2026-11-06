@@ -7,7 +7,7 @@
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
 python-multipart>=0.0.9
-pillow==12.1.1
+pillow==13.0.0
 numpy<2
 prometheus_client==0.26.0
 pydantic>=2.7
