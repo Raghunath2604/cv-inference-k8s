@@ -108,4 +108,4 @@ jobs:
           --ignore-unfixed
           --severity HIGH,CRITICAL
           --exit-code 1
-          ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          ghcr.io/raghunath2604/cv-inference-k8s:sha-${{ github.sha }}
