@@ -13,13 +13,21 @@ RUN pip install --no-cache-dir --prefix=/install \
     --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
+# Build the model artifact inside the image so a clean checkout is enough
+# to produce a runnable image; generated data remains confined to this
+# disposable builder stage.
+ENV PYTHONPATH=/install/lib/python3.12/site-packages
+COPY src/ ./src/
+ARG TRAIN_EPOCHS=20
+RUN python -u src/generate_data.py && python -u -m src.train --epochs ${TRAIN_EPOCHS}
+
 FROM python:3.12-slim AS runtime
 RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY src/ ./src/
-COPY artifacts/model.pt ./artifacts/model.pt
+COPY --from=builder /build/artifacts/model.pt ./artifacts/model.pt
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

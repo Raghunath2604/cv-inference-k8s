@@ -7,11 +7,13 @@ Run locally:
 import io
 import logging
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from prometheus_client import (
@@ -27,7 +29,15 @@ from src.model import CLASSES, IDX2CLASS, ShapeCNN, image_to_tensor
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cv-inference-api")
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "artifacts/model.pt")
+_project_root = Path(__file__).resolve().parent.parent
+_configured_model_path = Path(os.environ.get("MODEL_PATH", "artifacts/model.pt"))
+MODEL_PATH = (
+    _configured_model_path
+    if _configured_model_path.is_absolute()
+    else _project_root / _configured_model_path
+)
+API_KEY = os.environ.get("API_KEY")
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", "10485760"))
 
 _state = {"model": None, "loaded_at": None}
 
@@ -45,8 +55,16 @@ PREDICTION_COUNT = Counter(
 
 
 def load_model() -> ShapeCNN:
+    if not MODEL_PATH.is_file():
+        raise RuntimeError(
+            f"Model artifact not found at {MODEL_PATH}. "
+            "Run `python src/generate_data.py` followed by "
+            "`python -m src.train --epochs 20`, or build the Docker image."
+        )
     model = ShapeCNN()
-    model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
+    model.load_state_dict(
+        torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+    )
     model.eval()
     return model
 
@@ -99,13 +117,21 @@ def health():
     )
 
 
+def _authorize(api_key: str | None) -> None:
+    if API_KEY and (not api_key or not secrets.compare_digest(api_key, API_KEY)):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
 @app.get("/metrics")
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(file: UploadFile = File(...)):  # noqa: B008 — this is the documented
+def predict(
+    file: UploadFile = File(...),  # noqa: B008 — documented FastAPI upload idiom
+    x_api_key: str | None = Header(default=None),
+):  # noqa: B008
     # FastAPI idiom for declaring a required file upload; ruff's B008 rule
     # (no function calls in default args) is a false positive here since
     # FastAPI's dependency-injection system specifically relies on this
@@ -119,14 +145,20 @@ def predict(file: UploadFile = File(...)):  # noqa: B008 — this is the documen
     # the event loop couldn't accept new connections while blocked on
     # inference. See README's load-testing section for the before/after
     # numbers.
+    _authorize(x_api_key)
     if _state["model"] is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
-    contents = file.file.read()
+    contents = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image exceeds the {MAX_UPLOAD_BYTES}-byte limit",
+        )
     try:
         img = Image.open(io.BytesIO(contents))
         img.load()
-    except UnidentifiedImageError:
+    except (UnidentifiedImageError, OSError):
         raise HTTPException(status_code=422, detail="File is not a valid image")
 
     tensor = image_to_tensor(img).unsqueeze(0)  # add batch dim

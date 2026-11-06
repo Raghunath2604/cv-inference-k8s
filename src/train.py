@@ -5,6 +5,7 @@ Usage:
     python -m src.train --epochs 20
 """
 import argparse
+import copy
 import time
 from pathlib import Path
 
@@ -47,6 +48,8 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     start = time.time()
+    best_val_acc = -1.0
+    best_state = None
     for epoch in range(1, args.epochs + 1):
         model.train()
         epoch_loss = 0.0
@@ -61,8 +64,14 @@ def main():
         train_loss = epoch_loss / len(train_ds)
         val_acc = evaluate(model, val_loader, device)
         print(f"epoch {epoch}/{args.epochs}  train_loss={train_loss:.4f}  val_acc={val_acc:.4f}")
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_state = copy.deepcopy(model.state_dict())
 
     total_time = time.time() - start
+    if best_state is None:
+        raise RuntimeError("Training produced no checkpoint; the training dataset may be empty.")
+    model.load_state_dict(best_state)
     final_acc = evaluate(model, val_loader, device)
     print(f"\nTraining complete in {total_time:.1f}s. Final val_acc={final_acc:.4f}")
 

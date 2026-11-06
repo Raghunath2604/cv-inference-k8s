@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install ruff
+      - run: ruff check src/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install torch (CPU-only)
+        run: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+      - run: pip install -r requirements-dev.txt
+      - name: Unit tests (fast, no trained model needed)
+        run: pytest tests/ -v
+      - name: Generate data + train + sanity-check accuracy
+        run: |
+          python src/generate_data.py
+          python -m src.train --epochs 20
+      - name: Build clean Docker image
+        run: docker build --tag cv-inference-api:ci .
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Validate Kubernetes manifests against the real API schema
+        run: |
+          pip install kubernetes
+          python - <<'EOF'
+          import yaml
+          from kubernetes import client
+          api = client.ApiClient()
+          with open('k8s/deployment.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V1Deployment)
+          with open('k8s/hpa.yaml') as f:
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V2HorizontalPodAutoscaler)
+          with open('k8s/service.yaml') as f:
+              for doc in yaml.safe_load_all(f):
+                  api._ApiClient__deserialize(doc, client.V1Service)
+          for path in ('k8s/serviceaccount.yaml', 'k8s/pdb.yaml', 'k8s/networkpolicy.yaml'):
+              with open(path) as f:
+                  assert yaml.safe_load(f)['apiVersion']
+          print("All manifests structurally valid")
+          EOF
+
+  # Applying Kubernetes resources and observing HPA behavior remains an
+  # environment-level verification step requiring a real cluster.

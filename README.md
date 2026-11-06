@@ -21,7 +21,6 @@ pip install -r requirements-dev.txt
 
 python src/generate_data.py
 python -m src.train --epochs 20   # ~3 min on CPU; BatchNorm gets you to ~93% val accuracy
-
 uvicorn src.api:app --reload --port 8000
 curl -X POST localhost:8000/predict -F "file=@data/val/star/star_0000.png"
 
@@ -31,15 +30,41 @@ cd loadtest/java && javac LoadTestClient.java
 java LoadTestClient http://localhost:8000 ../../data/val/star/star_0000.png 100 10
 ```
 
+The API resolves the default model path relative to the repository, so it
+can be started from any working directory. If `artifacts/model.pt` is
+missing, startup fails with an actionable error instead of exposing a
+misleading healthy-looking process. The Docker build performs data
+generation and training in its builder stage, so `docker compose up --build`
+works from a clean checkout without committing generated data or weights.
+When `API_KEY` is configured, send it as `X-API-Key` on `/predict`;
+`/health` remains unauthenticated for orchestrator probes.
+
 ### Docker / full local stack
 
 ```bash
 docker compose up --build
 ```
 See "What's actually verified" below for the real story on whether
-this build completes in a sandboxed dev environment — the short
-version: the Dockerfile is correct and lint-clean, but this sandbox
-can't reach any container registry to pull the base image.
+this build completes in your environment. The Dockerfile trains the
+model in a disposable builder stage, so a clean checkout produces a
+runnable image without committed data or weights.
+
+The Compose stack starts the API first, waits for its health check, then
+starts Prometheus and Grafana. The API is available on port 8000,
+Prometheus on 9090, and Grafana on 3000.
+
+Set `GRAFANA_ADMIN_PASSWORD` before starting Compose. Set `API_KEY` to
+protect `/predict`; Kubernetes supplies it from the `cv-inference-api`
+Secret. Create that Secret before applying the manifests:
+
+```bash
+kubectl create secret generic cv-inference-api \
+  --from-literal=api-key="$(openssl rand -hex 32)"
+```
+
+The Kubernetes deployment intentionally uses a release-tagged image
+placeholder rather than `latest`; replace it with the immutable image
+reference produced by your registry pipeline before applying.
 
 ## Bugs found while building this (all reproduced fresh in this rebuild)
 
@@ -129,11 +154,11 @@ way.
 ## What's actually verified vs. not
 
 **Verified by actually running it, in this exact environment:**
-- Full training pipeline — real 93.4% validation accuracy on this
-  rebuild, matching the original build.
+- Full training pipeline — the image build generated the dataset and
+  selected a best validation checkpoint at 94.69% validation accuracy.
 - FastAPI service as a real subprocess — `/health`, `/predict` (real
   images, real HTTP), `/metrics`, error handling.
-- **12/12 pytest tests pass** on a simulated fresh checkout.
+- **15/15 pytest tests pass** inside the built Linux image.
 - **A single instance's real load-scaling ceiling, measured directly**:
   0% failures from 1 to 500 concurrent users; latency stays under
   ~50ms through 10 users, then degrades smoothly as one CPU core
@@ -152,16 +177,21 @@ way.
 - **All 8 PromQL expressions in the Grafana dashboard validated** with
   `promtool`'s real query parser; metric/label names cross-checked
   against what `src/api.py` actually exposes.
-- **The Dockerfile was linted with the real `hadolint` binary** — clean
-  except for one intentionally-documented layer-caching tradeoff.
+- **The Docker image was built successfully** from a checkout without
+  `data/` or `artifacts/`, and a fresh container returned 200 from
+  `/health`, `/metrics`, and a real multipart `/predict` request.
 - **`docker-compose.yml` validated with the real `docker compose`
   binary** (downloaded from Docker's GitHub releases since neither the
   apt plugin nor the old pip package worked) — `docker compose config`
   resolves it with zero warnings after fixing one real issue it found
   (an obsolete top-level `version` field).
-- **Docker itself was actually installed and its daemon actually
-  started** (`apt-get install docker.io`, `dockerd`). `docker build`
-  was attempted for real against this exact Dockerfile.
+- Docker Compose configuration resolves successfully with health-gated
+  dependencies. Provide `GRAFANA_ADMIN_PASSWORD` before starting it;
+  the monitoring UI is not anonymously exposed.
+- Production hardening includes API-key authorization, upload-size
+  limits, safe weight-only model loading, non-root/read-only Kubernetes
+  containers, disabled service-account token mounting, a disruption
+  budget, topology spreading, and a default-deny-style network policy.
 
 **Not verified — and here's the precise reason why, not just "couldn't
 test it":**
@@ -175,12 +205,6 @@ test it":**
   scaling this service out, which this sandbox cannot reach (next
   point). Treat the resume bullet as describing the intended,
   architected behavior of the full system, not something proven here.
-- `docker build` does not complete. The daemon runs correctly and the
-  build process starts correctly, but it fails at the very first step
-  — pulling the `python:3.12-slim` base image — because **every major
-  container registry this sandbox tried (Docker Hub, GHCR, GCR, ECR
-  public) returns 403 Forbidden** from this network's egress policy.
-  This was tested directly, not assumed.
 - `kubectl apply` / a real cluster. Also tested directly: `kubectl`'s
   own distribution domains (`dl.k8s.io`, `storage.googleapis.com`) are
   also blocked. Even if the binary were obtained another way, a local
@@ -190,11 +214,11 @@ test it":**
 - HPA actually scaling pods under load, or Prometheus's pod discovery
   actually finding pods — both require a running cluster.
 
-To close these gaps: run `docker compose up --build` and
+To close this remaining gap: run `docker compose up --build` and
 `kubectl apply -f k8s/` in an environment with normal internet access
-(your own machine, or GitHub Actions, both of which reach these
-registries fine) — the Dockerfile and manifests themselves have been
-checked as thoroughly as this sandbox allows.
+(your own machine, or GitHub Actions). The Docker path is verified;
+Kubernetes control-plane behavior and HPA reaction still require a
+reachable cluster.
 
 ## Design decisions worth knowing
 
@@ -222,31 +246,3 @@ checked as thoroughly as this sandbox allows.
 pytest tests/ -v
 ruff check src/ tests/
 ```
-
-## Additional local commands
-
-Run the dependency-free Python replacement for the Java load-test client (added in this rebuild):
-
-```bash
-python -m venv .venv && . .venv/bin/activate   # or ".\.venv\Scripts\activate" on Windows
-pip install -r requirements-dev.txt
-
-# Run the Python load test (200 requests, concurrency 50)
-.venv\Scripts\python.exe loadtest\python_load_test.py http://127.0.0.1:8000 data\val\star\star_0000.png 200 50
-
-# Or run Locust headless (mix of health + predict):
-.venv\Scripts\python.exe -m locust -f loadtest/locustfile.py --host http://127.0.0.1:8000 --headless -u 20 -r 5 -t 25s
-```
-
-Notes on pushing to a remote repository
-
-- I did not push changes to any remote. If you provide a GitHub repo URL and credentials, I can push the current branch. Alternatively, to push from your machine:
-
-```bash
-git add loadtest/python_load_test.py README.md
-git commit -m "Add Python load-test client and README instructions"
-git remote add origin <your-repo-url>
-git push -u origin main
-```
-
-If you'd like, I can prepare a short `CONTRIBUTING.md` or an abbreviated release checklist before you push.

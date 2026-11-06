@@ -67,6 +67,38 @@ def test_predict_rejects_non_image(client):
     assert resp.status_code == 422
 
 
+def test_predict_rejects_truncated_image(client):
+    resp = client.post(
+        "/predict",
+        files={"file": ("test.png", b"\x89PNG\r\n\x1a\ntruncated", "image/png")},
+    )
+    assert resp.status_code == 422
+
+
+def test_predict_rejects_oversized_upload(client, monkeypatch):
+    monkeypatch.setattr(api, "MAX_UPLOAD_BYTES", 10)
+    resp = client.post(
+        "/predict",
+        files={"file": ("test.png", b"01234567890", "image/png")},
+    )
+    assert resp.status_code == 413
+
+
+def test_predict_requires_configured_api_key(client, monkeypatch):
+    monkeypatch.setattr(api, "API_KEY", "test-secret")
+    png_bytes = _make_test_png_bytes()
+    unauthorized = client.post(
+        "/predict", files={"file": ("test.png", png_bytes, "image/png")}
+    )
+    authorized = client.post(
+        "/predict",
+        files={"file": ("test.png", png_bytes, "image/png")},
+        headers={"X-API-Key": "test-secret"},
+    )
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
+
+
 def test_predict_rejects_missing_file(client):
     resp = client.post("/predict")
     assert resp.status_code == 422

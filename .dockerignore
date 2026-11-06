@@ -1,0 +1,16 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.venv
+venv
+data
+artifacts
+tests
+loadtest
+monitoring
+k8s
+*.pyc
+__pycache__
+README.md
+docker-compose.yml

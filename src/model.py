@@ -51,7 +51,7 @@ def image_to_tensor(img: Image.Image) -> torch.Tensor:
     """Deterministic preprocessing shared by training and serving —
     kept in one place to avoid training/serving skew."""
     img = img.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
-    arr = torch.tensor(img.get_flattened_data(), dtype=torch.float32)
+    arr = torch.tensor(list(img.get_flattened_data()), dtype=torch.float32)
     arr = arr.view(IMG_SIZE, IMG_SIZE, 3).permute(2, 0, 1)  # HWC -> CHW
     return arr / 255.0
 
