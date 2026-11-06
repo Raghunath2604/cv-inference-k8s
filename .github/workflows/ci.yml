@@ -39,6 +39,8 @@ jobs:
       - name: Build clean Docker image
         run: docker build --tag cv-inference-api:ci .
       - name: Validate Compose configuration
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-validation-password
         run: docker compose config --quiet
       - name: Validate Kubernetes manifests against the real API schema
         run: |
