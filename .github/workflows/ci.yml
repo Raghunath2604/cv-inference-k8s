@@ -101,10 +101,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Scan image for high and critical vulnerabilities
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy:0.58.1 image
+          --ignore-unfixed
+          --severity HIGH,CRITICAL
+          --exit-code 1
+          ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
