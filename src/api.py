@@ -131,7 +131,7 @@ def metrics():
 def predict(
     file: UploadFile = File(...),  # noqa: B008 — documented FastAPI upload idiom
     x_api_key: str | None = Header(default=None),
-):  # noqa: B008
+):
     # FastAPI idiom for declaring a required file upload; ruff's B008 rule
     # (no function calls in default args) is a false positive here since
     # FastAPI's dependency-injection system specifically relies on this
