@@ -28,7 +28,10 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY src/ ./src/
 COPY --from=builder /build/artifacts/model.pt ./artifacts/model.pt
-RUN pip install --no-cache-dir --upgrade \
+RUN rm -rf \
+    /usr/local/lib/python3.11/site-packages/wheel-*.dist-info \
+    /usr/local/lib/python3.11/site-packages/jaraco.context-*.dist-info \
+    && pip install --no-cache-dir --upgrade \
     wheel==0.46.2 \
     jaraco.context==6.1.0
 
