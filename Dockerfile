@@ -32,6 +32,8 @@ COPY --from=builder /build/artifacts/model.pt ./artifacts/model.pt
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     MODEL_PATH=/app/artifacts/model.pt \
+    APP_VERSION=1.0.0 \
+    MODEL_VERSION=synthetic-shapes-v1 \
     PYTHONPATH=/app
 
 USER 1000
