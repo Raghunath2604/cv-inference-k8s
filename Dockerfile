@@ -23,14 +23,14 @@ RUN python -u src/generate_data.py && python -u -m src.train --epochs ${TRAIN_EP
 
 FROM python:3.11-slim AS runtime
 RUN useradd --create-home --uid 1000 appuser
-RUN pip install --no-cache-dir --upgrade \
-    wheel==0.46.2 \
-    jaraco.context==6.1.0
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY src/ ./src/
 COPY --from=builder /build/artifacts/model.pt ./artifacts/model.pt
+RUN pip install --no-cache-dir --upgrade \
+    wheel==0.46.2 \
+    jaraco.context==6.1.0
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
