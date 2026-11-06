@@ -65,7 +65,7 @@ jobs:
           with open('k8s/pdb.yaml') as f:
               api._ApiClient__deserialize(yaml.safe_load(f), client.V1PodDisruptionBudget)
           with open('k8s/networkpolicy.yaml') as f:
-              api._ApiClient__deserialize(doc, client.V1NetworkPolicy)
+              api._ApiClient__deserialize(yaml.safe_load(f), client.V1NetworkPolicy)
           print("All manifests structurally valid")
           EOF
 
