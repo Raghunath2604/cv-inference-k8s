@@ -51,6 +51,12 @@ def test_health_ok(client):
     assert set(body["classes"]) == set(CLASSES)
 
 
+def test_version_returns_release_metadata(client):
+    resp = client.get("/version")
+    assert resp.status_code == 200
+    assert resp.json() == {"application": "1.0.0", "model": "local"}
+
+
 def test_predict_returns_expected_shape(client):
     png_bytes = _make_test_png_bytes()
     resp = client.post("/predict", files={"file": ("test.png", png_bytes, "image/png")})
